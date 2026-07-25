@@ -1,13 +1,15 @@
 import os
+import io
 import asyncio
 import logging
 import aiosqlite
 from aiohttp import web
+from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
-    ReplyKeyboardMarkup, KeyboardButton
+    ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -94,7 +96,74 @@ async def cmd_start(message: types.Message):
             parse_mode="Markdown"
         )
 
-# Ловим обычные сообщения (текст, фото)
+# НОВЫЙ ХЕНДЛЕР: Ловим только ФОТО для наложения ватермарки
+@dp.message(F.chat.type == "private", F.photo)
+async def handle_photo_submission(message: types.Message):
+    if await is_banned(message.from_user.id):
+        await message.answer("❌ Вы заблокированы.")
+        return
+
+    # Скачиваем фото в оперативную память
+    photo = message.photo[-1]
+    photo_bytes = io.BytesIO()
+    await bot.download(photo, destination=photo_bytes)
+    photo_bytes.seek(0)
+    
+    # Открываем изображение для обработки
+    img = Image.open(photo_bytes)
+    draw = ImageDraw.Draw(img)
+    
+    # Настройки шрифта
+    try:
+        font = ImageFont.truetype("arial.ttf", size=40) 
+    except IOError:
+        font = ImageFont.load_default()
+        
+    watermark_text = "Сплетни Мурома"
+    
+    # Вычисляем размеры, чтобы поставить текст в правый нижний угол
+    text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    
+    width, height = img.size
+    x = width - text_width - 20 
+    y = height - text_height - 20 
+    
+    # Рисуем тень и сам белый текст
+    draw.text((x + 2, y + 2), watermark_text, font=font, fill=(0, 0, 0, 150))
+    draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 200))
+    
+    # Сохраняем обработанную картинку обратно в байты
+    output_bytes = io.BytesIO()
+    img.save(output_bytes, format="JPEG")
+    output_bytes.seek(0)
+    
+    photo_file = BufferedInputFile(output_bytes.read(), filename="watermarked.jpg")
+    
+    # Отправляем фото в админку (с оригинальным текстом от юзера)
+    sent_photo = await bot.send_photo(
+        chat_id=ADMIN_GROUP_ID,
+        photo=photo_file,
+        caption=message.caption
+    )
+    
+    # Сохраняем ID сообщения для публикации
+    await save_post(sent_photo.message_id, message.from_user.id)
+    
+    # Отправляем инфо и кнопки в ответ на фотку (как в оригинальном коде)
+    user_info = f"👤 **От:** {message.from_user.full_name}\nID: `{message.from_user.id}`"
+    await bot.send_message(
+        chat_id=ADMIN_GROUP_ID, 
+        text=user_info,
+        reply_to_message_id=sent_photo.message_id,
+        reply_markup=get_admin_keyboard(message.from_user.id),
+        parse_mode="Markdown"
+    )
+    
+    await message.reply("✈️ Твое фото отправлено!")
+
+# Ловим обычные сообщения (текст, видео и т.д.)
 @dp.message(F.chat.type == "private", ~F.text.startswith('/'))
 async def handle_user_submission(message: types.Message):
     if await is_banned(message.from_user.id):
@@ -140,7 +209,6 @@ async def publish_post(callback: CallbackQuery):
             try: await bot.send_message(author_id, "🎉 Твоя новость опубликована в канале!")
             except: pass
     await callback.answer("Опубликовано!")
-
 
 @dp.callback_query(F.data == "rej")
 async def reject_post(callback: CallbackQuery):
