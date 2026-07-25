@@ -109,39 +109,53 @@ async def handle_photo_submission(message: types.Message):
     await bot.download(photo, destination=photo_bytes)
     photo_bytes.seek(0)
     
-    # Открываем изображение для обработки
-    img = Image.open(photo_bytes)
-    draw = ImageDraw.Draw(img)
+    # 1. Открываем изображение и конвертируем в RGBA (чтобы поддерживалась прозрачность)
+    img = Image.open(photo_bytes).convert("RGBA")
     
-    # Настройки шрифта
+    # 2. Создаем полностью прозрачный слой такого же размера для текста
+    txt_overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(txt_overlay)
+    
+    # Настройки шрифта (можно увеличить размер, так как текст по центру)
     try:
-        font = ImageFont.truetype("ArialBlack.ttf", size=80) 
+        font = ImageFont.truetype("arial.ttf", size=60) 
     except IOError:
         font = ImageFont.load_default()
         
-    watermark_text = "spletni murom"
+    watermark_text = "Сплетни Мурома"
     
-    # Вычисляем размеры, чтобы поставить текст в правый нижний угол
+    # Вычисляем размеры текста
     text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
     
     width, height = img.size
-    x = width - text_width - 80 
-    y = height - text_height - 80 
     
-    # Рисуем тень и сам белый текст
-    draw.text((x + 2, y + 2), watermark_text, font=font, fill=(0, 0, 0, 150))
-    draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 150))
+    # 3. РАЗМЕЩЕНИЕ ПО ЦЕНТРУ: делим ширину и высоту пополам
+    x = (width - text_width) / 2
+    y = (height - text_height) / 2
+    
+    # 4. Рисуем текст с прозрачностью
+    # Последнее число в fill — это прозрачность от 0 (невидимый) до 255 (плотный).
+    # Полупрозрачная черная тень (альфа = 80)
+    draw.text((x + 2, y + 2), watermark_text, font=font, fill=(0, 0, 0, 80))
+    # Полупрозрачный белый текст (альфа = 120)
+    draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 120))
+    
+    # 5. Склеиваем оригинальное фото и прозрачный слой с текстом
+    watermarked_img = Image.alpha_composite(img, txt_overlay)
+    
+    # 6. Конвертируем обратно в RGB, чтобы сохранить как стандартный JPEG
+    watermarked_img = watermarked_img.convert("RGB")
     
     # Сохраняем обработанную картинку обратно в байты
     output_bytes = io.BytesIO()
-    img.save(output_bytes, format="JPEG")
+    watermarked_img.save(output_bytes, format="JPEG")
     output_bytes.seek(0)
     
     photo_file = BufferedInputFile(output_bytes.read(), filename="watermarked.jpg")
     
-    # Отправляем фото в админку (с оригинальным текстом от юзера)
+    # Отправляем фото в админку
     sent_photo = await bot.send_photo(
         chat_id=ADMIN_GROUP_ID,
         photo=photo_file,
@@ -151,7 +165,7 @@ async def handle_photo_submission(message: types.Message):
     # Сохраняем ID сообщения для публикации
     await save_post(sent_photo.message_id, message.from_user.id)
     
-    # Отправляем инфо и кнопки в ответ на фотку (как в оригинальном коде)
+    # Отправляем инфо и кнопки в ответ на фотку
     user_info = f"👤 **От:** {message.from_user.full_name}\nID: `{message.from_user.id}`"
     await bot.send_message(
         chat_id=ADMIN_GROUP_ID, 
