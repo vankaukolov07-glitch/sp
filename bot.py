@@ -1,6 +1,8 @@
+import os
 import asyncio
 import logging
 import aiosqlite
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -13,8 +15,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # ==================== НАСТРОЙКИ ====================
 BOT_TOKEN = "8022903371:AAGRn8HDmh4hnrfq23vyHNyDHtoEFdvCacg" 
-ADMIN_GROUP_ID = -1003856239103        # ID группы модераторов (замени на свой)
-CHANNEL_ID = -1002299762880           # ID твоего канала (со знаком минус)
+ADMIN_GROUP_ID = -1003856239103        # ID группы модераторов
+CHANNEL_ID = -1002299762880            # ID твоего канала
 DB_PATH = "predlozhka.db"
 # ===================================================
 
@@ -192,9 +194,25 @@ async def send_reply_to_user(message: types.Message, state: FSMContext):
         
     await state.clear()
 
+# ----------------- СТАРТ И ВЕБ-СЕРВЕР -----------------
+async def handle_ping(request):
+    return web.Response(text="Бот работает!")
+
 async def main():
     await init_db()
     print("🚀 Предложка (режим группы) запущена!")
+    
+    # Настройка и запуск веб-сервера для Render
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    # Запуск самого бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
