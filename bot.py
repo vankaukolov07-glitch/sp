@@ -115,11 +115,11 @@ async def handle_photo_submission(message: types.Message):
     
     # Настройки шрифта
     try:
-        font = ImageFont.truetype("arial.ttf", size=40) 
+        font = ImageFont.truetype("arial.ttf", size=55) 
     except IOError:
         font = ImageFont.load_default()
         
-    watermark_text = "Сплетни Мурома"
+    watermark_text = "Spletni_Murom"
     
     # Вычисляем размеры, чтобы поставить текст в правый нижний угол
     text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
@@ -127,8 +127,8 @@ async def handle_photo_submission(message: types.Message):
     text_height = text_bbox[3] - text_bbox[1]
     
     width, height = img.size
-    x = width - text_width - 20 
-    y = height - text_height - 20 
+    x = width - text_width - 80 
+    y = height - text_height - 80 
     
     # Рисуем тень и сам белый текст
     draw.text((x + 2, y + 2), watermark_text, font=font, fill=(0, 0, 0, 150))
