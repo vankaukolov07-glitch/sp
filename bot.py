@@ -118,7 +118,7 @@ async def handle_photo_submission(message: types.Message):
     
     # Настройки шрифта (можно увеличить размер, так как текст по центру)
     try:
-        font = ImageFont.truetype("arial.ttf", size=280) 
+        font = ImageFont.truetype("ArialBlack.ttf", size=100) 
     except IOError:
         font = ImageFont.load_default()
         
