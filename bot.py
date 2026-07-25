@@ -115,7 +115,7 @@ async def handle_photo_submission(message: types.Message):
     
     # Настройки шрифта
     try:
-        font = ImageFont.truetype("arial.ttf", size=55) 
+        font = ImageFont.truetype("ArialBlack.ttf", size=80) 
     except IOError:
         font = ImageFont.load_default()
         
