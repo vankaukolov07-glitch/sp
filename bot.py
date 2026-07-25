@@ -119,7 +119,7 @@ async def handle_photo_submission(message: types.Message):
     except IOError:
         font = ImageFont.load_default()
         
-    watermark_text = "Spletni_Murom"
+    watermark_text = "spletni murom"
     
     # Вычисляем размеры, чтобы поставить текст в правый нижний угол
     text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
@@ -132,7 +132,7 @@ async def handle_photo_submission(message: types.Message):
     
     # Рисуем тень и сам белый текст
     draw.text((x + 2, y + 2), watermark_text, font=font, fill=(0, 0, 0, 150))
-    draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 200))
+    draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 150))
     
     # Сохраняем обработанную картинку обратно в байты
     output_bytes = io.BytesIO()
