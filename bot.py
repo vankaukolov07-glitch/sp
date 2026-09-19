@@ -3,6 +3,9 @@ import io
 import asyncio
 import logging
 import aiosqlite
+import tempfile
+import imageio_ffmpeg
+from aiogram.types import FSInputFile
 from aiohttp import web
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types, F
@@ -176,7 +179,88 @@ async def handle_photo_submission(message: types.Message):
     )
     
     await message.reply("✈️ Твое фото отправлено!")
+# НОВЫЙ ХЕНДЛЕР: Ловим только ВИДЕО для наложения ватермарки
+@dp.message(F.chat.type == "private", F.video)
+async def handle_video_submission(message: types.Message):
+    if await is_banned(message.from_user.id):
+        await message.answer("❌ Вы заблокированы.")
+        return
 
+    # Проверка на лимит размера (20 МБ - жесткий лимит Telegram API)
+    max_size = 20 * 1024 * 1024 
+    if message.video.file_size > max_size:
+        await message.answer("❌ Видео слишком большое! Telegram разрешает ботам скачивать файлы только до 20 МБ. Попробуйте обрезать его.")
+        return
+
+    processing_msg = await message.answer("⏳ Начинаю обработку видео. Это займет некоторое время, не удаляйте сообщение...")
+
+    # Создаем временные файлы на диске сервера (в оперативку видео не влезет)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_in, \
+         tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_out:
+        in_path = temp_in.name
+        out_path = temp_out.name
+
+    try:
+        # 1. Скачиваем оригинальное видео
+        await bot.download(message.video, destination=in_path)
+
+        # 2. Получаем путь к встроенному ffmpeg и формируем команду
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        
+        # Настройки водяного знака: шрифт arial.ttf, полупрозрачный белый цвет (0.5), 
+        # размер 6% от ширины видео, размещение по центру
+        vf_filter = "drawtext=fontfile=arial.ttf:text='Сплетни Мурома':fontcolor=white@0.5:fontsize=(w*0.06):x=(w-text_w)/2:y=(h-text_h)/2"
+        
+        cmd = [
+            ffmpeg_exe, "-y", "-i", in_path,
+            "-vf", vf_filter,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", # Очень быстрое сжатие, чтобы спасти Render
+            "-c:a", "copy", # Звук копируем без изменений для скорости
+            out_path
+        ]
+        
+        # 3. Запускаем рендеринг асинхронно, чтобы бот не "зависал" для других пользователей
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            logging.error(f"FFmpeg ошибка: {stderr.decode()}")
+            raise Exception("Ошибка при наложении текста")
+
+        # 4. Отправляем готовое видео админам
+        video_file = FSInputFile(out_path)
+        sent_video = await bot.send_video(
+            chat_id=ADMIN_GROUP_ID,
+            video=video_file,
+            caption=message.caption
+        )
+        
+        # Сохраняем ID и добавляем кнопки
+        await save_post(sent_video.message_id, message.from_user.id)
+        user_info = f"👤 **От:** {message.from_user.full_name}\nID: `{message.from_user.id}`"
+        await bot.send_message(
+            chat_id=ADMIN_GROUP_ID, 
+            text=user_info,
+            reply_to_message_id=sent_video.message_id,
+            reply_markup=get_admin_keyboard(message.from_user.id),
+            parse_mode="Markdown"
+        )
+        
+        await processing_msg.edit_text("✈️ Твое видео с водяным знаком успешно отправлено!")
+
+    except Exception as e:
+        logging.error(f"Сбой обработки видео: {e}")
+        await processing_msg.edit_text("❌ Произошла ошибка при обработке видео. Возможно, сервер не справился с нагрузкой.")
+    finally:
+        # 5. Обязательно удаляем временные файлы, иначе память на Render быстро закончится
+        if os.path.exists(in_path):
+            os.remove(in_path)
+        if os.path.exists(out_path):
+            os.remove(out_path)
 # Ловим обычные сообщения (текст, видео и т.д.)
 @dp.message(F.chat.type == "private", ~F.text.startswith('/'))
 async def handle_user_submission(message: types.Message):
