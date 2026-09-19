@@ -209,7 +209,7 @@ async def handle_video_submission(message: types.Message):
         
         # Настройки водяного знака: шрифт arial.ttf, полупрозрачный белый цвет (0.5), 
         # размер 6% от ширины видео, размещение по центру
-        vf_filter = "drawtext=fontfile=arial.ttf:text='Сплетни Мурома':fontcolor=white@0.5:fontsize=(w*0.06):x=(w-text_w)/2:y=(h-text_h)/2"
+        vf_filter = "drawtext=fontfile=ArialBlack.ttf:text='Сплетни Мурома':fontcolor=white@0.5:fontsize=(w*0.06):x=(w-text_w)/2:y=(h-text_h)/2"
         
         cmd = [
             ffmpeg_exe, "-y", "-i", in_path,
