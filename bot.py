@@ -180,6 +180,7 @@ async def handle_photo_submission(message: types.Message):
     
     await message.reply("✈️ Твое фото отправлено!")
 # НОВЫЙ ХЕНДЛЕР: Ловим только ВИДЕО для наложения ватермарки
+# НОВЫЙ ХЕНДЛЕР: Ловим только ВИДЕО для наложения ватермарки
 @dp.message(F.chat.type == "private", F.video)
 async def handle_video_submission(message: types.Message):
     if await is_banned(message.from_user.id):
@@ -189,7 +190,23 @@ async def handle_video_submission(message: types.Message):
     # Проверка на лимит размера (20 МБ - жесткий лимит Telegram API)
     max_size = 20 * 1024 * 1024 
     if message.video.file_size > max_size:
-        await message.answer("❌ Видео слишком большое! Telegram разрешает ботам скачивать файлы только до 20 МБ. Попробуйте обрезать его.")
+        # Отправляем видео как есть, без ватермарки
+        forwarded = await bot.forward_message(
+            chat_id=ADMIN_GROUP_ID, 
+            from_chat_id=message.chat.id, 
+            message_id=message.message_id
+        )
+        await save_post(forwarded.message_id, message.from_user.id)
+        
+        user_info = f"👤 **От:** {message.from_user.full_name}\nID: `{message.from_user.id}`\n⚠️ *(Без ватермарки: файл больше 20 МБ)*"
+        await bot.send_message(
+            chat_id=ADMIN_GROUP_ID, 
+            text=user_info,
+            reply_to_message_id=forwarded.message_id,
+            reply_markup=get_admin_keyboard(message.from_user.id),
+            parse_mode="Markdown"
+        )
+        await message.answer("✈️ Твое видео отправлено!\n*(Оно слишком большое для наложения водяного знака, поэтому отправлено в оригинале).*")
         return
 
     processing_msg = await message.answer("⏳ Начинаю обработку видео. Это займет некоторое время, не удаляйте сообщение...")
@@ -207,19 +224,18 @@ async def handle_video_submission(message: types.Message):
         # 2. Получаем путь к встроенному ffmpeg и формируем команду
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         
-        # Настройки водяного знака: шрифт arial.ttf, полупрозрачный белый цвет (0.5), 
-        # размер 6% от ширины видео, размещение по центру
-        vf_filter = "drawtext=fontfile=ArialBlack.ttf:text='Сплетни Мурома':fontcolor=white@0.5:fontsize=(w*0.06):x=(w-text_w)/2:y=(h-text_h)/2"
+        # Настройки водяного знака
+        vf_filter = "drawtext=fontfile=arial.ttf:text='Сплетни Мурома':fontcolor=white@0.5:fontsize=(w*0.06):x=(w-text_w)/2:y=(h-text_h)/2"
         
         cmd = [
             ffmpeg_exe, "-y", "-i", in_path,
             "-vf", vf_filter,
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", # Очень быстрое сжатие, чтобы спасти Render
-            "-c:a", "copy", # Звук копируем без изменений для скорости
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-c:a", "copy",
             out_path
         ]
         
-        # 3. Запускаем рендеринг асинхронно, чтобы бот не "зависал" для других пользователей
+        # 3. Запускаем рендеринг асинхронно
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -256,7 +272,7 @@ async def handle_video_submission(message: types.Message):
         logging.error(f"Сбой обработки видео: {e}")
         await processing_msg.edit_text("❌ Произошла ошибка при обработке видео. Возможно, сервер не справился с нагрузкой.")
     finally:
-        # 5. Обязательно удаляем временные файлы, иначе память на Render быстро закончится
+        # 5. Обязательно удаляем временные файлы
         if os.path.exists(in_path):
             os.remove(in_path)
         if os.path.exists(out_path):
